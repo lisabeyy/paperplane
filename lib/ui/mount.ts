@@ -1202,7 +1202,10 @@ export function mount(root: HTMLElement) {
     cx.stroke();
     cx.setLineDash([]);
     cx.fillStyle = color;
-    cx.fillText(label, 20, y - 6);
+    // Right-aligned so labels never sit under the price HUD in the top-left corner.
+    cx.textAlign = "right";
+    cx.fillText(label, W - 28, y - 6);
+    cx.textAlign = "left";
   }
 
   function draw() {
@@ -1277,7 +1280,9 @@ export function mount(root: HTMLElement) {
         const above = v > hi;
         const y = above ? 64 : H - 22;
         cx.fillStyle = color;
-        cx.fillText(`${name} ${formatPrice(v)} ${above ? "↑" : "↓"}`, 20, y);
+        cx.textAlign = "right";
+        cx.fillText(`${name} ${formatPrice(v)} ${above ? "↑" : "↓"}`, plotR - 28, y);
+        cx.textAlign = "left";
       };
       const lvl = (v: number, color: string, dash: number[], name: string) =>
         v >= lo && v <= hi ? hline(Y(v), color, dash, `${name} ${formatPrice(v)}`, plotR) : edge(v, color, name);
