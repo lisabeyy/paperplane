@@ -119,7 +119,7 @@ const MARKUP = `
      <path d="M100 14 L112 64 L162 46 M112 64 L182 84 M112 64 L96 110 L178 126 M96 110 L120 184 M96 110 L44 160 M96 110 L22 122 M96 110 L48 76 L20 82 M48 76 L42 42 M48 76 L70 22 M112 64 L70 22" stroke="#B5AA94" stroke-width="2.5" fill="none" stroke-linejoin="round"/>
     </svg></div>
     <div class="board3" id="board3" style="opacity:0">
-     <div class="pn p1" id="p1"><div class="hd"><b>Founding season · top pilots</b><span class="mono" style="font-size:12px;color:#6B6252">return · prize</span></div></div>
+     <div class="pn p1" id="p1"><div class="hd"><b>Founding season · top pilots</b><span class="mono" style="font-size:12px;color:#6B6252">return · earned</span></div></div>
      <div class="pn p2" id="p2"><div id="b3rows"></div></div>
      <div class="pn p3" id="p3"><div class="hd"><span class="mono" style="font-size:12.5px;color:#6B6252">Prize pool · creator fees</span><b class="num" id="filmPool" style="color:var(--orange-d)">—</b></div></div>
     </div>
@@ -164,7 +164,7 @@ const MARKUP = `
    <ul class="list">
     <li><b>You fold it</b><p>The flight is yours: market, side, leverage. It waits 90 seconds.</p></li>
     <li><b>They board it</b><p>Other holders take a seat. Their hold is their weight on the split.</p></li>
-    <li><b>Takeoff pays or crashes</b><p>One live price. A landing splits that flight's share of the pool, 30% to the pilot and 70% to the seats. A crash pays nobody.</p></li>
+    <li><b>Takeoff pays or crashes</b><p>One live price. A landing that flew 2+ minutes earns a share of the pool, 30% to the pilot and 70% to the seats. A crash pays nobody.</p></li>
    </ul>
    <div class="row" style="margin-top:22px"><a href="#plane" data-go="plane" class="btn btn-or">Open the press</a><a href="#trade" data-go="trade" class="btn btn-line">Fold a plane</a></div>
   </div>
@@ -267,7 +267,7 @@ const MARKUP = `
     <li class="step"><span class="n">01</span><h3>A trade pays the fee</h3><p>Every buy and sell of $PLANE on pump.fun sends a creator fee, in SOL, to the coin's creator vault.</p></li>
     <li class="step"><span class="n">02</span><h3>The SOL is claimed</h3><p>Fees are claimed from the bonding curve and, after graduation, from the PumpSwap vault, into a public wallet.</p></li>
     <li class="step"><span class="n">03</span><h3>80% joins the season</h3><p>That share is the prize pool. The other 20% runs the servers and the price feed. Both numbers are on this page.</p></li>
-    <li class="step"><span class="n">04</span><h3>Landings are paid</h3><p>A flight that lands takes a slice of the pool by the weight aboard. 30% goes to the pilot, 70% to the seats. A crash pays nothing.</p></li>
+    <li class="step"><span class="n">04</span><h3>Landings are paid</h3><p>A flight that lands after 2+ minutes in the air takes a slice of the pool by its profit × the weight aboard. 30% goes to the pilot, 70% to the seats. A crash pays nothing.</p></li>
    </ol>
   </div>
   <p class="note" id="pressWallet" style="margin-top:22px"></p>
@@ -318,7 +318,7 @@ const MARKUP = `
     <li><strong>Fold.</strong> You pick market, side, leverage, and take-profit. The plane sits on the ground for 90 seconds.</li>
     <li><strong>Board.</strong> Other ticket holders climb on. Their hold is their weight when the flight is paid.</li>
     <li><strong>Takeoff.</strong> The server fills at the live mark. Same entry, target, and liquidation for the whole plane.</li>
-    <li><strong>Land or crash.</strong> A landing takes a slice of the season pool. A crash, a scratch, or a losing close pays nobody.</li>
+    <li><strong>Land or crash.</strong> A profitable landing after at least 2 minutes in the air takes a slice of the season pool. A crash, a scratch, a losing close, or a quick scalp pays nobody.</li>
    </ol>
    <h2 id="d-fly">How a flight works</h2>
    <h3>Sign in</h3>

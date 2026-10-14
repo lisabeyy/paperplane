@@ -9,9 +9,11 @@ This is not a clone of Papertrade or PaperCall. There is no house bot and no fol
 1. **Fold.** You set market, side, leverage, and take-profit. The plane sits on the ground for 90 seconds. Nothing is filled yet.
 2. **Board.** Other wallets climb on before takeoff. After the mint is live, holding 250K `$PLANE` is the ticket to fold and to board.
 3. **Takeoff.** The server stamps the live mark for everyone aboard. Same entry, target, and liquidation.
-4. **Landing.** Creator fees fill a public pool. A landing splits that flight's slice: 30% to the pilot, 70% to the seats by hold. A crash pays nothing.
+4. **Landing.** Creator fees fill a public pool. Each profitable flight that stayed in the air at least 2 minutes earns a slice proportional to its paper profit × the `$PLANE` weight aboard. A flight's slice goes 30% to the pilot and 70% to the seats by hold, or all to the pilot if nobody boarded. Crashes, scratches, losing closes and sub-2-minute scalps pay nothing.
 
-Paper scores still live on the board. SOL does not follow the rank.
+Paper scores still live on the board. SOL does not follow the rank; the board's last column shows what each wallet has earned from landings (`lib/payout.ts`).
+
+Resets are limited by tier (paper 1, origami 3, jet and up unlimited). The Reset button appears only when equity is under $2,000 with no open plane. A reset hides the pilot's flights and forfeits their pool share; passengers on those flights keep theirs.
 
 ## Local
 
@@ -44,5 +46,7 @@ railway up
 - Sky list with a Board button for planes still on the ground.
 - Scratch a fold before takeoff and get the paper margin back.
 - Open league, HYPE league, and a crash reel for paper scores.
+- Landing-based pool split shown on the board. Payouts are still sent by hand; update `PRESS_SOL_PAID` after each one.
+- Tier-limited account resets, offered only when an account is nearly empty.
 - Public press for claimed SOL, season pool, and treasury.
 - In-page Jupiter buy/sell once `PLANE_MINT` is set.
