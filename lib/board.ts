@@ -1,5 +1,5 @@
-import { prizeForRank } from "./engine";
 import { MIN_TRADES_TO_PLACE, STARTING_CASH } from "./markets";
+import { counts, payouts } from "./payout";
 import { getBook } from "./prices";
 import { seasonBounds } from "./season";
 import { getStore, type Flight, type Pilot, type PositionRow } from "./store";
@@ -13,7 +13,10 @@ export type BoardRow = {
   drawdown: number;
   mostly: string;
   eligible: boolean;
+  /** SOL this wallet has earned from landings this season, as pilot and as a seat. Not tied to rank. */
   prize: number;
+  /** Flights that count toward the pool: profitable and at least two minutes in the air. */
+  landings: number;
   crashPnl: number | null;
 };
 
@@ -42,8 +45,11 @@ export async function buildBoard(league: "open" | "hype" | "crash") {
     book = null;
   }
   const posBy = new Map(positions.map((p) => [p.wallet, p]));
+  const pool = Number(process.env.PRIZE_POOL_SOL || 0);
+  const earned = payouts(flights, pool);
   const flightsBy = new Map<string, Flight[]>();
   for (const f of flights) {
+    if (f.wiped) continue;
     const list = flightsBy.get(f.wallet) ?? [];
     list.push(f);
     flightsBy.set(f.wallet, list);
@@ -72,7 +78,8 @@ export async function buildBoard(league: "open" | "hype" | "crash") {
       drawdown: pilot.maxDrawdown,
       mostly: mostlyOf(mine, pos),
       eligible: mine.length >= MIN_TRADES_TO_PLACE,
-      prize: 0,
+      prize: earned.get(pilot.wallet) ?? 0,
+      landings: mine.filter(counts).length,
       crashPnl: crash,
     });
   }
@@ -84,16 +91,6 @@ export async function buildBoard(league: "open" | "hype" | "crash") {
     return a.wallet.localeCompare(b.wallet);
   });
 
-  const pool = Number(process.env.PRIZE_POOL_SOL || 0);
-  if (league !== "crash") {
-    let slot = 0;
-    for (const row of rows) {
-      if (!row.eligible) continue;
-      row.prize = prizeForRank(slot, pool);
-      slot += 1;
-    }
-  }
-
   return {
     seasonId: season.id,
     startsAt: season.startsAt.toISOString(),
@@ -103,6 +100,7 @@ export async function buildBoard(league: "open" | "hype" | "crash") {
     flying: rows.length,
     league,
     rows,
+    earned,
   };
 }
 

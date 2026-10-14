@@ -41,6 +41,13 @@ export type Flight = {
   closedAt: number;
   boarders: number;
   weight: number;
+  /** Time between takeoff and close. Short hops do not earn from the pool. */
+  airMs: number;
+  pilotWeight: number;
+  /** Wallets that boarded, with the $PLANE hold they flew with. */
+  riders: Boarder[];
+  /** Hidden by an account reset. Kept so passengers still earn from it. */
+  wiped: boolean;
 };
 
 export type Store = {
@@ -68,6 +75,7 @@ export type Store = {
   tradeCount: (wallet: string, season: string) => Promise<number>;
   allPilots: (season: string) => Promise<Pilot[]>;
   allPositions: (season: string) => Promise<PositionRow[]>;
+  /** Every flight in the season, including ones hidden by a reset. Filter on `wiped` for display. */
   allFlights: (season: string) => Promise<Flight[]>;
   resetSeason: (wallet: string, season: string) => Promise<void>;
 };
@@ -165,13 +173,13 @@ function memoryStore(): Store {
       return row;
     },
     async addFlight(flight) {
-      mem.flights.unshift({ ...flight, boarders: flight.boarders ?? 0, weight: flight.weight ?? 1 });
+      mem.flights.unshift({ ...flight, boarders: flight.boarders ?? 0, weight: flight.weight ?? 1, riders: flight.riders ?? [], wiped: false });
     },
     async flightsFor(wallet, season, limit = 12) {
-      return mem.flights.filter((f) => f.wallet === wallet && f.seasonId === season).slice(0, limit);
+      return mem.flights.filter((f) => f.wallet === wallet && f.seasonId === season && !f.wiped).slice(0, limit);
     },
     async tradeCount(wallet, season) {
-      return mem.flights.filter((f) => f.wallet === wallet && f.seasonId === season).length;
+      return mem.flights.filter((f) => f.wallet === wallet && f.seasonId === season && !f.wiped).length;
     },
     async allPilots(season) {
       return [...mem.pilots.values()].filter((p) => p.seasonId === season);
@@ -190,7 +198,7 @@ function memoryStore(): Store {
       pilot.maxDrawdown = 0;
       pilot.resetsUsed += 1;
       mem.positions.delete(key(wallet, season));
-      mem.flights = mem.flights.filter((f) => !(f.wallet === wallet && f.seasonId === season));
+      for (const f of mem.flights) if (f.wallet === wallet && f.seasonId === season) f.wiped = true;
     },
   };
 }
@@ -264,6 +272,10 @@ function pgStore(pool: Pool): Store {
     );
     ALTER TABLE flights ADD COLUMN IF NOT EXISTS boarders INT NOT NULL DEFAULT 0;
     ALTER TABLE flights ADD COLUMN IF NOT EXISTS weight DOUBLE PRECISION NOT NULL DEFAULT 1;
+    ALTER TABLE flights ADD COLUMN IF NOT EXISTS air_ms BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE flights ADD COLUMN IF NOT EXISTS pilot_weight DOUBLE PRECISION NOT NULL DEFAULT 1;
+    ALTER TABLE flights ADD COLUMN IF NOT EXISTS riders JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE flights ADD COLUMN IF NOT EXISTS wiped BOOLEAN NOT NULL DEFAULT false;
     CREATE INDEX IF NOT EXISTS flights_season_idx ON flights (season_id, closed_at DESC);
   `).then(() => undefined);
 
@@ -312,6 +324,10 @@ function pgStore(pool: Pool): Store {
     closedAt: new Date(String(r.closed_at)).getTime(),
     boarders: Number(r.boarders ?? 0),
     weight: Number(r.weight ?? 1),
+    airMs: Number(r.air_ms ?? 0),
+    pilotWeight: Number(r.pilot_weight ?? 1),
+    riders: Array.isArray(r.riders) ? (r.riders as Boarder[]).map((b) => ({ wallet: String(b.wallet), weight: Number(b.weight) })) : [],
+    wiped: Boolean(r.wiped),
   });
 
   const mapPilot = (r: Record<string, unknown>): Pilot => ({
@@ -440,8 +456,8 @@ function pgStore(pool: Pool): Store {
     async addFlight(flight) {
       await ready;
       await pool.query(
-        `INSERT INTO flights (id, wallet, season_id, market, side, leverage, margin, pnl, reason, closed_at, boarders, weight)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        `INSERT INTO flights (id, wallet, season_id, market, side, leverage, margin, pnl, reason, closed_at, boarders, weight, air_ms, pilot_weight, riders)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [
           flight.id,
           flight.wallet,
@@ -455,20 +471,23 @@ function pgStore(pool: Pool): Store {
           new Date(flight.closedAt),
           flight.boarders,
           flight.weight,
+          Math.round(flight.airMs),
+          flight.pilotWeight,
+          JSON.stringify(flight.riders),
         ],
       );
     },
     async flightsFor(wallet, season, limit = 12) {
       await ready;
       const q = await pool.query(
-        `SELECT * FROM flights WHERE wallet = $1 AND season_id = $2 ORDER BY closed_at DESC LIMIT $3`,
+        `SELECT * FROM flights WHERE wallet = $1 AND season_id = $2 AND NOT wiped ORDER BY closed_at DESC LIMIT $3`,
         [wallet, season, limit],
       );
       return q.rows.map(mapFlight);
     },
     async tradeCount(wallet, season) {
       await ready;
-      const q = await pool.query(`SELECT count(*)::int AS n FROM flights WHERE wallet = $1 AND season_id = $2`, [wallet, season]);
+      const q = await pool.query(`SELECT count(*)::int AS n FROM flights WHERE wallet = $1 AND season_id = $2 AND NOT wiped`, [wallet, season]);
       return Number(q.rows[0].n);
     },
     async allPilots(season) {
@@ -493,7 +512,7 @@ function pgStore(pool: Pool): Store {
         await client.query("BEGIN");
         await client.query(`DELETE FROM boarders WHERE position_id IN (SELECT id FROM positions WHERE wallet = $1 AND season_id = $2)`, [wallet, season]);
         await client.query(`DELETE FROM positions WHERE wallet = $1 AND season_id = $2`, [wallet, season]);
-        await client.query(`DELETE FROM flights WHERE wallet = $1 AND season_id = $2`, [wallet, season]);
+        await client.query(`UPDATE flights SET wiped = true WHERE wallet = $1 AND season_id = $2`, [wallet, season]);
         await client.query(
           `UPDATE pilots SET cash = $3, peak_equity = $3, max_drawdown = 0, resets_used = resets_used + 1 WHERE wallet = $1 AND season_id = $2`,
           [wallet, season, STARTING_CASH],

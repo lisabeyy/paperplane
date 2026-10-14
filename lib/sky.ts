@@ -8,8 +8,7 @@ export const BOARD_MS = 90_000;
 /** Hold required to fold or board once the mint exists. */
 export const TICKET = 250_000;
 
-/** Pilot's cut of a landed flight that other people boarded. The rest is split by weight. */
-export const PILOT_CUT = 0.3;
+export { PILOT_CUT } from "./payout";
 
 function mint() {
   return process.env.PLANE_MINT || process.env.NEXT_PUBLIC_PLANE_MINT || "";

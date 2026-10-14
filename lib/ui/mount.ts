@@ -1,5 +1,6 @@
 import { formatFiat, formatPercent, formatPrice, formatRatio, formatSol } from "@/lib/format";
 import { MARKETS, MIN_TRADES_TO_PLACE, STARTING_CASH, type MarketId } from "@/lib/markets";
+import { MIN_AIR_MS } from "@/lib/payout";
 import { startLive } from "@/lib/ui/live";
 
 type Side = "long" | "short";
@@ -10,6 +11,7 @@ type Flight = {
   leverage: number;
   pnl: number;
   reason: "land" | "liq" | "tp";
+  airMs?: number;
 };
 type Pos = {
   market: MarketId;
@@ -56,6 +58,7 @@ type Row = {
   mostly: string;
   eligible: boolean;
   prize: number;
+  landings: number;
   crashPnl: number | null;
 };
 type Board = {
@@ -67,6 +70,7 @@ type Board = {
   rows: Row[];
   you: Row | null;
   youRank: number | null;
+  youSol: number | null;
 };
 
 const MARKUP = `
@@ -183,6 +187,7 @@ const MARKUP = `
     <div><small>Open P&amp;L</small><b id="opnl" class="num">—</b></div>
     <div><small>Season return</small><b id="roi" class="num">0.00%</b></div>
     <div><small>League rank</small><b id="rk">unranked</b></div>
+    <div class="acct-reset" id="resetBox" hidden><small>Running on fumes</small><button type="button" class="btn btn-line btn-sm" id="resetBtn">Reset to $10K</button><span class="mono" id="resetLeft"></span></div>
    </div>
    <div class="mkts" id="mkts" role="group" aria-label="Market"></div>
    <div class="stage"><canvas id="chart" aria-label="Price chart"></canvas>
@@ -228,7 +233,7 @@ const MARKUP = `
   <div class="board" id="board"></div>
   <p class="note" style="margin-top:12px">Equity is the paper account's value right now: cash, plus the margin in an open plane, plus that plane's unrealized P&amp;L at the live mark. Everyone starts at $10,000. Return is equity against that start.</p>
   <h2 class="disp d-m" style="margin-top:56px">how a landing is split</h2>
-  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Place</th><th>Share of pool</th><th>Paid in SOL</th></tr></thead><tbody id="splitBody"></tbody></table></div>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Who</th><th>Share of the flight's slice</th><th>Example, 10% slice</th></tr></thead><tbody id="splitBody"></tbody></table></div>
  </div></section>
 </div>
 <div class="route" id="r-plane">
@@ -355,7 +360,8 @@ const MARKUP = `
    <ul>
     <li><strong>80%</strong> of claimed fees join the season prize pool.</li>
     <li><strong>20%</strong> runs servers, price feeds, and the public wallet.</li>
-    <li>The pool is split across flights that <strong>land</strong> in that season, by the weight aboard.</li>
+    <li>The pool is split across flights that <strong>land</strong> in that season, in proportion to paper profit × the $PLANE weight aboard.</li>
+    <li>A flight has to stay in the air at least <strong>2 minutes</strong> to count. Quick scalps land on the board but earn no share.</li>
     <li>On a plane with passengers: pilot <strong>30%</strong>, seats <strong>70%</strong> split by hold.</li>
     <li>A pilot who flew alone keeps that flight's whole slice.</li>
     <li>Crash, scratch, and losing closes pay <strong>0 SOL</strong>.</li>
@@ -368,7 +374,8 @@ const MARKUP = `
     <li>A season runs Monday 00:00 UTC to Sunday night. Paper accounts start over at $10,000.</li>
     <li>Rank is season return: equity ÷ $10,000 − 1. Open planes are marked to the live price.</li>
     <li>Ties go to the pilot with the smaller peak-to-trough drawdown.</li>
-    <li>Account resets are limited by tier. A reset clears flights and cash for the season and spends one reset.</li>
+    <li>Account resets are limited by tier. Reset shows up once your equity drops under $2,000 with no plane on the sheet. It restores $10,000, hides your flights, and spends one reset.</li>
+    <li>A reset forfeits your pilot share of this season's pool. Wallets that boarded your planes keep theirs.</li>
    </ul>
    <h2 id="d-leagues">Leagues</h2>
    <ul>
@@ -376,7 +383,7 @@ const MARKUP = `
     <li><strong>HYPE league</strong> — paper PnL on HYPE-PERP only.</li>
     <li><strong>Crash reel</strong> — worst single closed flight. The clip people post. It is not paid.</li>
    </ul>
-   <p>None of those ranks are paid in SOL. SOL follows landings from the fee pool.</p>
+   <p>None of those ranks are paid in SOL. SOL follows landings from the fee pool. The board's last column shows what each pilot has earned from landings so far.</p>
    <h2 id="d-fair">Keeping it fair</h2>
    <ul>
     <li>One paper account per wallet. The server stores the fill. The browser does not name the price.</li>
@@ -564,6 +571,7 @@ export function mount(root: HTMLElement) {
     $("menuConnect").textContent = me ? "Sign out" : "Connect wallet";
   }
 
+  const RESET_BELOW = 2000;
   function paintAccount() {
     const eq = equityNow();
     const roi = eq / STARTING_CASH - 1;
@@ -583,6 +591,14 @@ export function mount(root: HTMLElement) {
     const rank = board?.youRank;
     $("rk").textContent = !me ? "connect to rank" : trades < MIN_TRADES_TO_PLACE ? `${MIN_TRADES_TO_PLACE - trades} flights to place` : rank ? `#${rank}` : "unranked";
     $("avail").textContent = "Available " + formatFiat(me?.cash ?? STARTING_CASH);
+    // Reset only shows up when it is useful: no plane on the sheet and the account mostly gone.
+    const resetBox = $("resetBox");
+    resetBox.hidden = !me || !!pos() || eq >= RESET_BELOW;
+    if (me && !resetBox.hidden) {
+      const left = me.tier.resets == null ? null : Math.max(0, me.tier.resets - me.resetsUsed);
+      $<HTMLButtonElement>("resetBtn").disabled = left === 0;
+      $("resetLeft").textContent = left == null ? "unlimited resets" : left === 0 ? "no resets left · Monday refills" : `${left} left this season`;
+    }
     setConnectLabel();
     const tier = me?.tier?.tier ?? "paper";
     root.querySelectorAll<HTMLElement>(".tier").forEach((el) => el.classList.toggle("on", el.dataset.tier === tier));
@@ -639,7 +655,7 @@ export function mount(root: HTMLElement) {
       ? flights
           .map((f) => {
             const up = f.pnl >= 0;
-            return `<div class="prow"><span class="pill ${f.side === "long" ? "l" : "s"}">${f.side.toUpperCase()}</span><span>${esc(f.market)} · ${formatRatio(f.leverage)} ${up ? '<span class="up">landed</span>' : '<span class="down">crashed</span>'}</span><span class="mono num ${up ? "up" : "down"}">${formatFiat(f.pnl, "detailed", true)}</span></div>`;
+            return `<div class="prow"><span class="pill ${f.side === "long" ? "l" : "s"}">${f.side.toUpperCase()}</span><span>${esc(f.market)} · ${formatRatio(f.leverage)} ${up ? '<span class="up">landed</span>' : '<span class="down">crashed</span>'}${up && f.reason !== "liq" && f.airMs != null && f.airMs < MIN_AIR_MS ? ' <span style="color:var(--paper-3)">· under 2 min, no pool share</span>' : ""}</span><span class="mono num ${up ? "up" : "down"}">${formatFiat(f.pnl, "detailed", true)}</span></div>`;
           })
           .join("")
       : `<div class="prow" style="grid-template-columns:1fr"><span style="color:var(--paper-3)">No flights yet. Connect a wallet and fold one.</span></div>`;
@@ -724,13 +740,16 @@ export function mount(root: HTMLElement) {
   function paintBoard() {
     const rows = board?.rows ?? [];
     const crash = board?.league === "crash";
-    const head = `<div class="brow h"><span>Rank</span><span>Pilot</span><span>${crash ? "Worst crash" : "Return"}</span><span class="c-x">Trades</span><span class="c-x">Equity</span><span>${crash ? "Reel" : "Prize"}</span></div>`;
+    const paid = (board?.poolSol ?? 0) > 0;
+    const head = `<div class="brow h"><span>Rank</span><span>Pilot</span><span>${crash ? "Worst crash" : "Return"}</span><span class="c-x">Trades</span><span class="c-x">Equity</span><span>${crash ? "Reel" : paid ? "Earned" : "Landings"}</span></div>`;
+    const earnedCell = (sol: number | null | undefined, landings: number) =>
+      paid ? (sol && sol > 0 ? formatSol(sol) : "—") : String(landings);
     const body = rows.length
       ? rows
           .map((p, i) => {
             const you = me && p.wallet === me.wallet;
             const ret = crash ? formatFiat(p.crashPnl, "detailed", true) : formatPercent(p.roi * 100, true);
-            const prize = crash ? "reel" : "paper";
+            const prize = crash ? "reel" : earnedCell(p.prize, p.landings);
             return `<div class="brow${you ? " you" : ""}"><span class="rank${i < 3 ? " t" : ""}">${i + 1}</span><span class="who"><span class="av" aria-hidden="true"></span><span style="min-width:0"><b>${esc(p.callsign)}</b><span class="mono" style="font-size:12.5px;color:var(--paper-3)">mostly ${esc(p.mostly)}${p.eligible ? "" : " · not eligible yet"}</span></span></span><span class="mono num ${crash || p.roi < 0 ? "down" : "up"}">${ret}</span><span class="c-x mono num">${p.trades}</span><span class="c-x mono num">${formatFiat(p.equity, "compact")}</span><span class="mono num or">${prize}</span></div>`;
           })
           .join("")
@@ -738,7 +757,7 @@ export function mount(root: HTMLElement) {
     const youInList = !!(me && rows.some((r) => r.wallet === me!.wallet));
     const youRow =
       me && !youInList
-        ? `<div class="brow you"><span class="rank">${board?.youRank ?? "—"}</span><span class="who"><span class="av" aria-hidden="true" style="background:var(--orange)"></span><span><b>${esc(me.callsign)}</b><span class="mono" style="font-size:12.5px;color:var(--paper-3)">${me.trades < MIN_TRADES_TO_PLACE ? `${MIN_TRADES_TO_PLACE - me.trades} flights to place` : "outside the top 50"}</span></span></span><span class="mono num">${formatPercent((equityNow() / STARTING_CASH - 1) * 100, true)}</span><span class="c-x mono num">${me.trades}</span><span class="c-x mono num">${formatFiat(equityNow(), "compact")}</span><span class="mono num" style="color:var(--paper-3)">—</span></div>`
+        ? `<div class="brow you"><span class="rank">${board?.youRank ?? "—"}</span><span class="who"><span class="av" aria-hidden="true" style="background:var(--orange)"></span><span><b>${esc(me.callsign)}</b><span class="mono" style="font-size:12.5px;color:var(--paper-3)">${me.trades < MIN_TRADES_TO_PLACE ? `${MIN_TRADES_TO_PLACE - me.trades} flights to place` : "outside the top 50"}</span></span></span><span class="mono num">${formatPercent((equityNow() / STARTING_CASH - 1) * 100, true)}</span><span class="c-x mono num">${me.trades}</span><span class="c-x mono num">${formatFiat(equityNow(), "compact")}</span><span class="mono num or">${paid && board?.youSol ? formatSol(board.youSol) : "—"}</span></div>`
         : "";
     $("board").innerHTML = head + body + youRow;
     const top = (spotlight?.rows ?? []).slice(0, 3);
@@ -779,11 +798,12 @@ export function mount(root: HTMLElement) {
       $("lgPoolNote").textContent = season.poolSol > 0 ? "Split across landings this week." : "Waiting on the fair launch.";
       const pool = season.poolSol;
       const share = (n: number) => (pool > 0 ? formatSol(pool * n) : "—");
+      // A flight's slice is its profit × weight over the season's total; 10% is just an illustration.
       $("splitBody").innerHTML = [
-        ["Pilot, flew alone", "The whole slice", share(1)],
-        ["Pilot, with seats", "30% of that flight", share(0.3)],
-        ["Seats", "70%, by hold", share(0.7)],
-        ["Crash or scratch", "Nothing", "0 SOL"],
+        ["Pilot, flew alone", "The whole slice", share(0.1)],
+        ["Pilot, with seats", "30%", share(0.03)],
+        ["Seats", "70%, by hold", share(0.07)],
+        ["Under 2 min, crash or scratch", "Nothing", "0 SOL"],
       ]
         .map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td class="num">${r[2]}</td></tr>`)
         .join("");
@@ -1426,6 +1446,17 @@ export function mount(root: HTMLElement) {
       .finally(() => {
         busy = false;
       });
+  });
+  on($("resetBtn"), "click", async () => {
+    if (!me) return openModal();
+    const ok = window.confirm("Reset to $10,000? Your flights this season are cleared and you give up your pilot share of this week's pool. Passengers on your planes keep theirs.");
+    if (!ok) return;
+    const res = await fetch("/api/me/reset", { method: "POST" });
+    const body = (await res.json()) as { error?: string };
+    if (!res.ok) return snack(esc(body.error || "Reset failed."));
+    await loadMe();
+    await loadBoard();
+    snack("Fresh sheet. $10,000 to fly with.");
   });
   on($("tabs"), "click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-lg]");

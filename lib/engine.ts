@@ -62,15 +62,6 @@ export function openFee(margin: number, leverage: number, feeRate: number): numb
   return margin * leverage * feeRate;
 }
 
-export function prizeForRank(index: number, pool: number): number {
-  if (!(pool > 0) || index < 0 || index >= 50) return 0;
-  if (index === 0) return pool * 0.25;
-  if (index === 1) return pool * 0.15;
-  if (index === 2) return pool * 0.1;
-  if (index < 10) return (pool * 0.3) / 7;
-  return (pool * 0.2) / 40;
-}
-
 export const TIERS = [
   { id: "paper", name: "paper", min: 0, resets: 1 },
   { id: "origami", name: "origami", min: 250_000, resets: 3 },

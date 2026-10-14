@@ -142,6 +142,8 @@ section.s{padding-block:clamp(64px,9vw,120px)}
 .acct{display:flex;gap:28px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line)}
 .acct small{display:block;font-family:var(--mono);font-size:12px;color:var(--paper-3);letter-spacing:.08em;text-transform:uppercase}
 .acct b{font-family:var(--display);font-weight:800;font-size:clamp(22px,2.4vw,30px);letter-spacing:-.03em}
+.acct-reset{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-left:auto}
+.acct-reset span{font-size:12px;color:var(--paper-3)}
 .mkts{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--line)}
 .mk{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 12px;border-radius:10px;border:0;background:transparent;cursor:pointer;min-width:108px;text-align:left}
 .mk:hover{background:var(--ink-3)}
