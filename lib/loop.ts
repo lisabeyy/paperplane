@@ -95,8 +95,10 @@ export async function closeAt(pos: PositionRow, reason: "land" | "liq" | "tp", m
     boarders: riders.length,
     weight: (taken.pilotWeight || 1) + riders.reduce((sum, b) => sum + b.weight, 0),
   };
-  await store.addFlight(flight);
+  // Credit cash before the flight row exists: the client treats a new flight as "landed" and
+  // immediately reads the board, which would otherwise rank this pilot without the returned cash.
   await markEquity(pilot, null, null);
+  await store.addFlight(flight);
   return flight;
 }
 
