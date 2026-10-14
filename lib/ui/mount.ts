@@ -1,5 +1,6 @@
 import { formatFiat, formatPercent, formatPrice, formatRatio, formatSol } from "@/lib/format";
 import { MARKETS, MIN_TRADES_TO_PLACE, STARTING_CASH, type MarketId } from "@/lib/markets";
+import { startLive } from "@/lib/ui/live";
 
 type Side = "long" | "short";
 type Flight = {
@@ -31,6 +32,9 @@ type SkyPlane = {
   phase: "boarding" | "air";
   takeoffAt: number;
   entry: number;
+  margin: number;
+  liq: number;
+  tp: number;
   boarders: { wallet: string; callsign: string }[];
 };
 type Me = {
@@ -122,6 +126,14 @@ const MARKUP = `
    </div>
   </div>
  </div>
+ <section class="s" id="homeLive"><div class="wrap">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">
+   <div><span class="lbl"><i class="livedot"></i>live sky</span><h2 class="disp d-l" style="margin-top:14px">board a plane in one tap.</h2></div>
+   <a href="#trade" data-go="trade" class="btn btn-or">Fold your own</a>
+  </div>
+  <div class="mkts home-ticks" id="homeTicks" role="group" aria-label="Live markets"></div>
+  <div class="box" style="padding:4px 18px;margin-top:14px" id="homeSky"></div>
+ </div></section>
  <section class="s" id="after"><div class="wrap">
   <span class="lbl">what paperplane is</span>
   <h2 class="disp d-l" style="margin-top:14px;max-width:16ch">your plane. their ticket on.</h2>
@@ -168,17 +180,20 @@ const MARKUP = `
   <div class="box" style="overflow:hidden;min-width:0">
    <div class="acct num">
     <div><small>Equity</small><b id="eq">$10,000.00</b></div>
+    <div><small>Open P&amp;L</small><b id="opnl" class="num">—</b></div>
     <div><small>Season return</small><b id="roi" class="num">0.00%</b></div>
     <div><small>League rank</small><b id="rk">unranked</b></div>
     <div class="acct-tools"><input id="callsign" maxlength="16" placeholder="callsign" aria-label="Callsign" autocomplete="off"><button type="button" class="btn btn-line btn-sm" id="saveName">Save</button><button type="button" class="btn btn-line btn-sm" id="resetBtn">Reset</button></div>
    </div>
    <div class="mkts" id="mkts" role="group" aria-label="Market"></div>
    <div class="stage"><canvas id="chart" aria-label="Price chart"></canvas>
-    <div class="hud"><small id="hudMk">SOL-PERP</small><span class="px num" id="hudPx">—</span><small id="hudPnl">No plane in the air</small></div>
+    <div class="hud"><small><i class="livedot" id="liveDot"></i><span id="hudMk">SOL-PERP</span></small><span class="px num" id="hudPx">—</span><small id="hudPnl">No plane in the air</small></div>
+    <div class="tf" id="tf" role="group" aria-label="Chart window"><button type="button" data-tf="live" aria-pressed="true">Live</button><button type="button" data-tf="3h" aria-pressed="false">3h</button></div>
     <div class="toast" id="toast" hidden></div></div>
    <div class="legend"><span><i style="background:var(--paper)"></i>Entry</span><span><i style="background:var(--orange)"></i>Take-profit</span><span><i style="background:var(--down)"></i>Liquidation</span></div>
   </div>
   <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
+   <div class="box pos" id="tradeBoarding" hidden><h3 style="font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px"><i class="livedot"></i>Boarding now</h3><div id="skyNow"></div></div>
    <form class="box ticket" id="ticket" novalidate>
     <div class="seg" role="group" aria-label="Side"><button type="button" class="lg" id="bLong" aria-pressed="true">Long</button><button type="button" class="sh" id="bShort" aria-pressed="false">Short</button></div>
     <div class="field"><label for="amt">Margin <span class="num" id="avail">Available $10,000.00</span></label><div class="inp"><input id="amt" inputmode="decimal" value="500" autocomplete="off"><span>paper USD</span></div></div>
@@ -211,6 +226,7 @@ const MARKUP = `
   </div>
   <div class="tabs" role="group" aria-label="League" id="tabs"><button type="button" aria-pressed="true" data-lg="open">Open league</button><button type="button" aria-pressed="false" data-lg="hype">HYPE league</button><button type="button" aria-pressed="false" data-lg="crash">Crash reel</button></div>
   <div class="board" id="board"></div>
+  <p class="note" style="margin-top:12px">Equity is the paper account's value right now: cash, plus the margin in an open plane, plus that plane's unrealized P&amp;L at the live mark. Everyone starts at $10,000. Return is equity against that start.</p>
   <h2 class="disp d-m" style="margin-top:56px">how a landing is split</h2>
   <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Place</th><th>Share of pool</th><th>Paid in SOL</th></tr></thead><tbody id="splitBody"></tbody></table></div>
  </div></section>
@@ -394,6 +410,8 @@ const MARKUP = `
 </div>
 </main>
 <footer><div class="wrap foot"><span class="logo" style="font-size:18px"><img src="/mark.png" alt="">paperplane</span><span>Fold a plane · board it · one price at takeoff</span><div class="sp"></div><a href="#trade" data-go="trade">trade</a><a href="#league" data-go="league">league</a><a href="#plane" data-go="plane">$plane</a><a href="#docs" data-go="docs">docs</a></div></footer>
+<div class="bbar" id="bbar" hidden></div>
+<div class="snack" id="snack" role="status" hidden></div>
 <div class="wmodal" id="wmodal" hidden>
  <div class="wcard" role="dialog" aria-modal="true" aria-labelledby="wtitle">
   <h2 id="wtitle">Connect a wallet</h2>
@@ -480,18 +498,59 @@ export function mount(root: HTMLElement) {
   let seenFlight = "";
   let hist: Record<string, number[]> = {};
   let change: Record<string, number> = {};
+  /** 24h open, backed out of the server's change % so the live tick can move it. */
+  const open24: Record<string, number> = {};
+  /** Latest streamed mark per market. */
+  const live: Record<string, { p: number; t: number }> = {};
+  /** Sampled stream for the Live chart window. */
+  const ticks: Record<string, { t: number; p: number }[]> = {};
+  const LIVE_WINDOW = 120_000;
+  let tf: "live" | "3h" = "live";
+  let dispPx = 0;
+  let dispMk = "";
+  let lastHudPx = 0;
+  let pendingBoard = "";
+  let skySig = "";
   const pos = () => me?.position ?? null;
 
   function last(k: string) {
+    const l = live[k];
+    if (l && Date.now() - l.t < 15_000) return l.p;
     const a = hist[k];
     return a && a.length ? a[a.length - 1]! : 0;
   }
-  function livePnl(p = pos()) {
-    if (!p || !(p.entry > 0)) return 0;
+  function liveChange(k: string) {
+    const o = open24[k];
+    const px = last(k);
+    return o && px ? (px / o - 1) * 100 : (change[k] ?? 0);
+  }
+  /** Return on margin, in percent, for anything with an entry. Same math the server settles on. */
+  function roePct(p: { market: MarketId; side: Side; leverage: number; entry: number } | null) {
+    if (!p || !(p.entry > 0)) return null;
     const px = last(p.market);
-    if (!(px > 0)) return 0;
-    const dir = p.side === "long" ? 1 : -1;
-    return p.margin * p.leverage * (px / p.entry - 1) * dir;
+    if (!(px > 0)) return null;
+    return p.leverage * (px / p.entry - 1) * (p.side === "long" ? 1 : -1) * 100;
+  }
+  function livePnl(p = pos()) {
+    const r = roePct(p);
+    return p && r != null ? (p.margin * r) / 100 : 0;
+  }
+  /** The plane you hold a seat on, if any. */
+  function seat() {
+    const you = me?.wallet;
+    if (!you) return null;
+    return sky.find((p) => p.boarders.some((b) => b.wallet === you)) ?? null;
+  }
+  /** What the chart and HUD follow: your own plane first, then your seat. */
+  function tracked(): (Pos & { pilot?: string }) | null {
+    const own = pos();
+    if (own) return own;
+    const s = seat();
+    if (!s) return null;
+    return { market: s.market, side: s.side, margin: s.margin, leverage: s.leverage, entry: s.entry, liq: s.liq, tp: s.tp, phase: s.phase, takeoffAt: s.takeoffAt, pilot: s.callsign };
+  }
+  function signed(n: number) {
+    return `<span class="${n >= 0 ? "up" : "down"}">${formatPercent(n, true)}</span>`;
   }
   function equityNow() {
     if (!me) return STARTING_CASH;
@@ -512,6 +571,14 @@ export function mount(root: HTMLElement) {
     const roiEl = $("roi");
     roiEl.textContent = formatPercent(roi * 100, true);
     roiEl.className = "num " + (roi >= 0 ? "up" : "down");
+    const t = tracked();
+    const r = roePct(t);
+    const opnl = $("opnl");
+    if (!t) opnl.innerHTML = "—";
+    else if (t.phase === "boarding") opnl.innerHTML = `<span style="color:var(--paper-3)">on the ground</span>`;
+    else if (r == null) opnl.innerHTML = "—";
+    else if (t.pilot) opnl.innerHTML = `${signed(r)} <small style="display:inline;font-size:12px">seat</small>`;
+    else opnl.innerHTML = `<span class="${r >= 0 ? "up" : "down"}">${formatFiat(livePnl(t), "detailed", true)} · ${formatPercent(r, true)}</span>`;
     const trades = me?.trades ?? 0;
     const rank = board?.youRank;
     $("rk").textContent = !me ? "connect to rank" : trades < MIN_TRADES_TO_PLACE ? `${MIN_TRADES_TO_PLACE - trades} flights to place` : rank ? `#${rank}` : "unranked";
@@ -539,7 +606,6 @@ export function mount(root: HTMLElement) {
     const liq = side === "long" ? px * (1 - 0.92 / l) : px * (1 + 0.92 / l);
     $("kLiq").textContent = px ? formatPrice(liq) : "—";
     $("kFee").textContent = formatFiat(a * l * spec.fee);
-    $("hudMk").textContent = `${cur}-PERP · live mark`;
     const max = String(spec.maxLev);
     const lev = $<HTMLInputElement>("lev");
     if (lev.max !== max) lev.max = max;
@@ -548,13 +614,25 @@ export function mount(root: HTMLElement) {
   }
 
   function renderMk() {
-    $("mkts").innerHTML = (Object.keys(MARKETS) as MarketId[])
-      .map((k) => {
-        const px = last(k);
-        const ch = change[k] ?? 0;
-        return `<button type="button" class="mk" data-mk="${k}" aria-pressed="${k === cur}"><b>${k}-PERP</b><small class="num">${px ? formatPrice(px) : "—"} · <span class="${ch >= 0 ? "up" : "down"}">${formatPercent(ch, true)}</span></small></button>`;
-      })
+    const ids = Object.keys(MARKETS) as MarketId[];
+    $("mkts").innerHTML = ids
+      .map((k) => `<button type="button" class="mk" data-mk="${k}" aria-pressed="${k === cur}"><b>${k}-PERP</b><small class="num"><span data-px="${k}">—</span> · <span data-ch="${k}">—</span></small></button>`)
       .join("");
+    $("homeTicks").innerHTML = ids
+      .map((k) => `<button type="button" class="mk" data-pick="${k}" aria-label="Fold a ${k} plane"><b>${k}-PERP</b><small class="num"><span data-px="${k}">—</span> · <span data-ch="${k}">—</span></small></button>`)
+      .join("");
+    updateMk();
+  }
+  function updateMk() {
+    root.querySelectorAll<HTMLElement>("[data-px]").forEach((el) => {
+      const px = last(el.dataset.px!);
+      el.textContent = px ? formatPrice(px) : "—";
+    });
+    root.querySelectorAll<HTMLElement>("[data-ch]").forEach((el) => {
+      const ch = liveChange(el.dataset.ch!);
+      el.textContent = formatPercent(ch, true);
+      el.className = ch >= 0 ? "up" : "down";
+    });
   }
 
   function renderLog() {
@@ -576,32 +654,73 @@ export function mount(root: HTMLElement) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   }
 
+  type Rel = "yours" | "aboard" | "open" | "shut";
+  function relOf(p: SkyPlane, now = Date.now()): Rel {
+    const you = me?.wallet;
+    if (you != null && p.wallet === you) return "yours";
+    if (you != null && p.boarders.some((b) => b.wallet === you)) return "aboard";
+    return p.phase === "boarding" && p.takeoffAt > now ? "open" : "shut";
+  }
+  const onGround = (p: SkyPlane, now = Date.now()) => p.phase === "boarding" && p.takeoffAt > now;
+
+  function skyRow(p: SkyPlane, now: number) {
+    const rel = relOf(p, now);
+    const seats = p.boarders.length;
+    const action =
+      rel === "yours"
+        ? `<span class="tag">your fold</span>`
+        : rel === "aboard"
+          ? `<span class="tag" style="color:var(--orange)">you're aboard</span>`
+          : rel === "open"
+            ? `<button type="button" class="btn btn-or btn-sm" data-board="${esc(p.id)}">Board</button>`
+            : `<span class="tag">door shut</span>`;
+    return `<div class="prow srow${rel === "yours" || rel === "aboard" ? " mine" : ""}"><span class="pill ${p.side === "long" ? "l" : "s"}">${p.side.toUpperCase()}</span><span style="min-width:0"><b>${esc(p.callsign)}</b><span class="mono sub">${esc(p.market)} ${p.side} ${formatRatio(p.leverage)} · <span data-cd="${esc(p.id)}"></span>${seats ? ` · ${seats} aboard` : ""}</span></span><span class="pct num" data-pnl="${esc(p.id)}"></span>${action}</div>`;
+  }
+
+  /** Rebuild sky lists only when the set of planes or your relation to them changes. */
   function paintSky() {
-    const box = $("sky");
-    if (!box) return;
-    if (!sky.length) {
-      box.innerHTML = `<div class="empty">The sky is empty. Fold the first plane.</div>`;
-      return;
-    }
     const now = Date.now();
-    box.innerHTML = sky
-      .map((p) => {
-        const you = me?.wallet;
-        const yours = you != null && p.wallet === you;
-        const aboard = you != null && p.boarders.some((b) => b.wallet === you);
-        const ground = p.phase === "boarding" && p.takeoffAt > now;
-        const names = p.boarders.map((b) => esc(b.callsign)).join(", ");
-        const status = ground ? `on the ground · ${clock(p.takeoffAt - now)}` : "in the air";
-        const action = yours
-          ? `<span class="mono" style="color:var(--paper-3)">your fold</span>`
-          : aboard
-            ? `<span class="mono" style="color:var(--paper-3)">you're aboard</span>`
-            : ground
-              ? `<button type="button" class="btn btn-or btn-sm" data-board="${esc(p.id)}">Board</button>`
-              : `<span class="mono" style="color:var(--paper-3)">door shut</span>`;
-        return `<div class="prow"><span><b>${esc(p.callsign)}</b><span class="mono" style="display:block;font-size:12.5px;color:var(--paper-3)">${esc(p.market)} ${p.side} ${formatRatio(p.leverage)} · ${status}${names ? ` · ${names}` : ""}</span></span>${action}</div>`;
-      })
-      .join("");
+    const sig = sky.map((p) => `${p.id}:${onGround(p, now) ? 1 : 0}:${p.boarders.length}:${relOf(p, now)}`).join("|") + "#" + (me?.wallet ?? "");
+    if (sig !== skySig) {
+      skySig = sig;
+      $("sky").innerHTML = sky.length
+        ? sky.map((p) => skyRow(p, now)).join("")
+        : `<div class="empty">The sky is empty. Fold the first plane.</div>`;
+      const ground = sky.filter((p) => onGround(p, now));
+      const openSeats = ground.filter((p) => relOf(p, now) === "open");
+      $("skyNow").innerHTML = openSeats.slice(0, 3).map((p) => skyRow(p, now)).join("");
+      $("tradeBoarding").hidden = openSeats.length === 0;
+      const homeList = [...ground, ...sky.filter((p) => !onGround(p, now))].slice(0, 6);
+      $("homeSky").innerHTML = homeList.length
+        ? homeList.map((p) => skyRow(p, now)).join("") +
+          (sky.length > homeList.length ? `<div class="prow" style="grid-template-columns:1fr"><a href="#trade" data-go="trade">${sky.length - homeList.length} more in the sky →</a></div>` : "")
+        : `<div class="empty">No planes up yet. <a href="#trade" data-go="trade">Fold the first one</a> and others can board it.</div>`;
+      const next = openSeats[0];
+      $("bbar").innerHTML = next
+        ? `<i class="livedot"></i><span class="txt"><b>${openSeats.length === 1 ? "1 plane" : `${openSeats.length} planes`} boarding</b> · ${esc(next.market)} ${next.side} ${formatRatio(next.leverage)} by ${esc(next.callsign)} · <span data-cd="${esc(next.id)}"></span></span><button type="button" class="btn btn-or btn-sm" data-board="${esc(next.id)}">Board</button><a href="#trade" data-go="trade">all</a>`
+        : "";
+    }
+    const route = (location.hash || "#home").slice(1) || "home";
+    $("bbar").hidden = !$("bbar").innerHTML || !(route === "home" || route === "league");
+    updateSkyLive(now);
+  }
+
+  /** Countdowns and live P&L, in place. */
+  function updateSkyLive(now = Date.now()) {
+    const byId = new Map(sky.map((p) => [p.id, p]));
+    root.querySelectorAll<HTMLElement>("[data-cd]").forEach((el) => {
+      const p = byId.get(el.dataset.cd!);
+      if (!p) return;
+      const txt = onGround(p, now) ? `on the ground · ${clock(p.takeoffAt - now)}` : p.phase === "boarding" ? "taking off" : "in the air";
+      if (el.textContent !== txt) el.textContent = txt;
+    });
+    root.querySelectorAll<HTMLElement>("[data-pnl]").forEach((el) => {
+      const p = byId.get(el.dataset.pnl!);
+      if (!p) return;
+      const r = p.phase === "air" ? roePct(p) : null;
+      const px = last(p.market);
+      el.innerHTML = r != null ? `${signed(r)}<small>P&amp;L</small>` : `<span>${px ? formatPrice(px) : "—"}</span><small>fills at takeoff</small>`;
+    });
   }
 
   function paintBoard() {
@@ -709,10 +828,17 @@ export function mount(root: HTMLElement) {
 
   function showSlip(flight: Flight, who: Me) {
     const up = flight.pnl >= 0;
-    const rank = board?.youRank ? ` Rank #${board.youRank}.` : "";
     const toast = $("toast");
-    toast.innerHTML = `<b>${up ? "landed." : "crashed."}</b><p>${formatFiat(flight.pnl, "detailed", true)} paper on ${esc(flight.market)} ${formatRatio(flight.leverage)}.${rank} ${up ? "Post the slip." : "The crash reel loves this."}</p><div class="row"><button type="button" class="btn btn-or btn-sm" id="postSlip">Post the slip</button><button type="button" class="btn btn-line btn-sm" id="copySlip">Copy</button></div>`;
+    toast.innerHTML = `<b>${up ? "landed." : "crashed."}</b><p>${formatFiat(flight.pnl, "detailed", true)} paper on ${esc(flight.market)} ${formatRatio(flight.leverage)}.<span id="slipRank"></span> ${up ? "Post the slip." : "The crash reel loves this."}</p><div class="row"><button type="button" class="btn btn-or btn-sm" id="postSlip">Post the slip</button><button type="button" class="btn btn-line btn-sm" id="copySlip">Copy</button></div>`;
     toast.hidden = false;
+    // The cached board can be stale or another league, so ask for the open rank after this flight.
+    fetch("/api/leaderboard?league=open")
+      .then((res) => (res.ok ? (res.json() as Promise<Board>) : null))
+      .then((fresh) => {
+        const slot = document.getElementById("slipRank");
+        if (slot && fresh?.youRank) slot.textContent = ` Rank #${fresh.youRank}.`;
+      })
+      .catch(() => {});
     const text = `${up ? "landed" : "crashed"} a ${formatRatio(flight.leverage)} ${flight.market} plane on Paperplane\n${formatFiat(flight.pnl, "detailed", true)} paper · ${who.callsign}\n\nFold a plane. Others board it. Takeoff is one price.\n${location.origin}`;
     $<HTMLButtonElement>("postSlip").onclick = () => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
     $<HTMLButtonElement>("copySlip").onclick = () => navigator.clipboard?.writeText(text).then(() => ($("copySlip").textContent = "Copied"));
@@ -723,22 +849,55 @@ export function mount(root: HTMLElement) {
     if (!res.ok) return;
     const data = (await res.json()) as { markets: Record<string, { price: number; changePct: number; candles: number[] }> };
     for (const k of Object.keys(data.markets)) {
-      hist[k] = data.markets[k]!.candles;
-      change[k] = data.markets[k]!.changePct;
+      const m = data.markets[k]!;
+      hist[k] = m.candles;
+      change[k] = m.changePct;
+      if (m.price > 0) open24[k] = m.price / (1 + m.changePct / 100);
     }
-    renderMk();
+    paintLive();
+  }
+
+  function paintHud() {
+    if (!$("r-trade").classList.contains("on")) return;
+    const px = last(cur);
+    const hudPx = $("hudPx");
+    if (px && px !== lastHudPx) {
+      hudPx.textContent = formatPrice(px);
+      if (lastHudPx && !reduced) {
+        hudPx.classList.remove("tick-up", "tick-down");
+        void hudPx.offsetWidth;
+        hudPx.classList.add(px > lastHudPx ? "tick-up" : "tick-down");
+        window.setTimeout(() => hudPx.classList.remove("tick-up", "tick-down"), 60);
+      }
+      lastHudPx = px;
+    }
+    const streaming = !!live[cur] && Date.now() - live[cur]!.t < 10_000;
+    $("liveDot").classList.toggle("on", streaming);
+    $("hudMk").textContent = `${cur}-PERP · ${streaming ? "live" : "mark"}`;
+    const t = tracked();
+    const hudPnl = $("hudPnl");
+    if (!t) hudPnl.textContent = "No plane on the sheet";
+    else if (t.phase === "boarding" && t.takeoffAt) {
+      const left = Math.max(0, t.takeoffAt - Date.now());
+      const who = t.pilot ? `Aboard ${esc(t.pilot)}'s plane · ` : "On the ground · ";
+      hudPnl.innerHTML = left > 0 ? `${who}takes off in ${clock(left)}` : "Taking off";
+    } else {
+      const r = roePct(t);
+      if (r == null) hudPnl.textContent = "In the air";
+      else if (t.pilot) hudPnl.innerHTML = `Your seat ${signed(r)} · ${esc(t.pilot)}'s ${t.market} ${t.side} ${formatRatio(t.leverage)}`;
+      else {
+        const v = livePnl(t);
+        hudPnl.innerHTML = `Altitude <span class="${v >= 0 ? "up" : "down"}">${formatFiat(v, "detailed", true)} · ${formatPercent(r, true)}</span> · ${t.side} ${formatRatio(t.leverage)}`;
+      }
+    }
+  }
+
+  /** Everything that moves with the price. Cheap, runs a few times a second. */
+  function paintLive() {
+    updateMk();
+    paintHud();
     upTicket();
-    const p = pos();
-    if ($("r-trade").classList.contains("on")) {
-      $("hudPx").textContent = formatPrice(last(cur));
-      if (p?.phase === "boarding" && p.takeoffAt) {
-        const left = Math.max(0, p.takeoffAt - Date.now());
-        $("hudPnl").textContent = left > 0 ? `On the ground · takes off in ${clock(left)}` : "Taking off";
-      } else if (p && p.entry > 0) {
-        const v = livePnl(p);
-        $("hudPnl").innerHTML = `Altitude <span class="${v >= 0 ? "up" : "down"}">${formatFiat(v, "detailed", true)}</span> · ${p.side} ${formatRatio(p.leverage)}`;
-      } else $("hudPnl").textContent = "No plane on the sheet";
-    }
+    paintSky();
   }
 
   async function loadConfig() {
@@ -847,6 +1006,12 @@ export function mount(root: HTMLElement) {
     $("wmodal").hidden = true;
     await loadMe();
     await loadBoard();
+    await loadSky().catch(() => {});
+    if (pendingBoard) {
+      const id = pendingBoard;
+      pendingBoard = "";
+      await boardPlane(id);
+    }
     if (!(location.hash || "").includes("trade")) {
       history.replaceState(null, "", "#trade");
       show("trade");
@@ -891,6 +1056,8 @@ export function mount(root: HTMLElement) {
     setMenu(false);
     window.scrollTo(0, 0);
     onScroll();
+    lastHudPx = 0;
+    paintSky();
   }
   function setMenu(open: boolean) {
     $("menu").hidden = !open;
@@ -992,6 +1159,38 @@ export function mount(root: HTMLElement) {
     cx.fill();
     cx.restore();
   }
+  function seriesFor(k: string, now: number): { t: number; p: number }[] {
+    const candles = hist[k] ?? [];
+    const minute = Math.floor(now / 60_000) * 60_000;
+    const fromCandles = (count: number) =>
+      candles.slice(-count).map((p, i, a) => ({ t: minute - (a.length - 1 - i) * 60_000, p }));
+    if (tf === "3h") {
+      const pts = fromCandles(candles.length);
+      const px = last(k);
+      if (px) pts.push({ t: now, p: px });
+      return pts;
+    }
+    const recent = (ticks[k] ?? []).filter((x) => x.t >= now - LIVE_WINDOW);
+    if (recent.length >= 4) return recent;
+    // Stream still warming up: lean on the last few candles so the chart is never empty.
+    const pts = fromCandles(3).concat(recent);
+    const px = last(k);
+    if (px) pts.push({ t: now, p: px });
+    return pts;
+  }
+
+  function hline(y: number, color: string, dash: number[], label: string, W: number) {
+    cx.strokeStyle = color;
+    cx.setLineDash(dash);
+    cx.beginPath();
+    cx.moveTo(0, y);
+    cx.lineTo(W, y);
+    cx.stroke();
+    cx.setLineDash([]);
+    cx.fillStyle = color;
+    cx.fillText(label, 20, y - 6);
+  }
+
   function draw() {
     raf = requestAnimationFrame(draw);
     if (!$("r-trade").classList.contains("on")) return;
@@ -1005,24 +1204,51 @@ export function mount(root: HTMLElement) {
     }
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
     cx.clearRect(0, 0, W, H);
-    const series = hist[cur];
-    if (!series || series.length < 2) return;
-    const p = pos();
-    let lo = Math.min(...series);
-    let hi = Math.max(...series);
-    if (p && p.market === cur) {
-      lo = Math.min(lo, p.liq, p.tp);
-      hi = Math.max(hi, p.liq, p.tp);
+    const now = Date.now();
+    const series = seriesFor(cur, now);
+    if (series.length < 2) return;
+    const target = series[series.length - 1]!.p;
+    if (dispMk !== cur || !dispPx || reduced) {
+      dispPx = target;
+      dispMk = cur;
+    } else dispPx += (target - dispPx) * 0.18;
+    series[series.length - 1] = { t: now, p: dispPx };
+
+    const t = tracked();
+    const levels = t && t.market === cur && t.entry > 0 ? t : null;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const x of series) {
+      if (x.p < lo) lo = x.p;
+      if (x.p > hi) hi = x.p;
+    }
+    const minSpan = dispPx * 0.0004;
+    if (hi - lo < minSpan) {
+      const mid = (hi + lo) / 2;
+      lo = mid - minSpan / 2;
+      hi = mid + minSpan / 2;
+    }
+    const span = hi - lo;
+    // In the Live window, far-off TP/liq would flatten the line; pin those to the edge instead.
+    const fits = (v: number) => tf === "3h" || (v > lo - span * 2.5 && v < hi + span * 2.5);
+    if (levels) {
+      for (const v of [levels.entry, levels.tp, levels.liq]) {
+        if (v > 0 && fits(v)) {
+          lo = Math.min(lo, v);
+          hi = Math.max(hi, v);
+        }
+      }
     }
     const pad = (hi - lo) * 0.12 || 1;
     lo -= pad;
     hi += pad;
-    const n = series.length;
-    const X = (i: number) => 20 + ((W - 120) * i) / (n - 1);
+    const t0 = tf === "live" ? Math.min(series[0]!.t, now - LIVE_WINDOW) : series[0]!.t;
+    const plotR = W - 120;
+    const X = (tm: number) => 20 + ((plotR - 20) * (tm - t0)) / Math.max(1, now - t0);
     const Y = (v: number) => 70 + (H - 100) * (1 - (v - lo) / (hi - lo));
     cx.strokeStyle = "rgba(239,231,216,.06)";
     cx.lineWidth = 1;
-    cx.font = '12px ui-monospace, monospace';
+    cx.font = "12px ui-monospace, monospace";
     for (let g = 0; g < 6; g++) {
       const gy = 70 + ((H - 100) * g) / 5;
       cx.beginPath();
@@ -1032,41 +1258,54 @@ export function mount(root: HTMLElement) {
       cx.fillStyle = "#8F8676";
       cx.fillText(formatPrice(hi - ((hi - lo) * g) / 5), W - 108, gy - 5);
     }
-    if (p && p.market === cur) {
-      const ly = Y(p.liq);
-      cx.strokeStyle = "#FF8F7A";
-      cx.setLineDash([2, 6]);
-      cx.beginPath();
-      cx.moveTo(0, ly);
-      cx.lineTo(W, ly);
-      cx.stroke();
-      cx.setLineDash([]);
-      const ty = Y(p.tp);
-      cx.strokeStyle = "#FF6A2B";
-      cx.setLineDash([8, 6]);
-      cx.beginPath();
-      cx.moveTo(0, ty);
-      cx.lineTo(W, ty);
-      cx.stroke();
-      cx.setLineDash([]);
-      const ey = Y(p.entry);
-      cx.strokeStyle = "rgba(239,231,216,.55)";
-      cx.setLineDash([4, 6]);
-      cx.beginPath();
-      cx.moveTo(0, ey);
-      cx.lineTo(W, ey);
-      cx.stroke();
-      cx.setLineDash([]);
+    if (levels) {
+      const edge = (v: number, color: string, name: string) => {
+        const above = v > hi;
+        const y = above ? 64 : H - 22;
+        cx.fillStyle = color;
+        cx.fillText(`${name} ${formatPrice(v)} ${above ? "↑" : "↓"}`, 20, y);
+      };
+      const lvl = (v: number, color: string, dash: number[], name: string) =>
+        v >= lo && v <= hi ? hline(Y(v), color, dash, `${name} ${formatPrice(v)}`, plotR) : edge(v, color, name);
+      lvl(levels.liq, "#FF8F7A", [2, 6], "liq");
+      lvl(levels.tp, "#FF6A2B", [8, 6], "tp");
+      lvl(levels.entry, "rgba(239,231,216,.55)", [4, 6], "entry");
     }
+    // Area under the line, tinted by direction since the window opened.
+    const up = dispPx >= series[0]!.p;
     cx.beginPath();
-    series.forEach((v, i) => (i ? cx.lineTo(X(i), Y(v)) : cx.moveTo(X(i), Y(v))));
+    series.forEach((x, i) => (i ? cx.lineTo(X(x.t), Y(x.p)) : cx.moveTo(X(x.t), Y(x.p))));
+    cx.lineTo(X(now), H - 30);
+    cx.lineTo(X(series[0]!.t), H - 30);
+    cx.closePath();
+    const grad = cx.createLinearGradient(0, 70, 0, H - 30);
+    grad.addColorStop(0, up ? "rgba(142,209,154,.14)" : "rgba(255,143,122,.14)");
+    grad.addColorStop(1, "rgba(22,19,15,0)");
+    cx.fillStyle = grad;
+    cx.fill();
+    cx.beginPath();
+    series.forEach((x, i) => (i ? cx.lineTo(X(x.t), Y(x.p)) : cx.moveTo(X(x.t), Y(x.p))));
     cx.strokeStyle = "#EFE7D8";
     cx.lineWidth = 2;
+    cx.lineJoin = "round";
     cx.stroke();
-    const lx = X(n - 1);
-    const ly = Y(series[n - 1]!);
-    const ang = Math.atan2(Y(series[n - 1]!) - Y(series[Math.max(0, n - 6)]!), X(n - 1) - X(Math.max(0, n - 6)));
-    if (p && p.market === cur) drawPlane(lx, ly + Math.sin(Date.now() / 300) * 3, ang, 1.15, "#FF6A2B");
+    const lx = X(now);
+    const ly = Y(dispPx);
+    // Current-price line and tag on the axis.
+    cx.strokeStyle = up ? "rgba(142,209,154,.5)" : "rgba(255,143,122,.5)";
+    cx.setLineDash([1, 4]);
+    cx.beginPath();
+    cx.moveTo(lx, ly);
+    cx.lineTo(W, ly);
+    cx.stroke();
+    cx.setLineDash([]);
+    cx.fillStyle = up ? "#8ED19A" : "#FF8F7A";
+    cx.fillRect(W - 112, ly - 11, 108, 22);
+    cx.fillStyle = "#16130F";
+    cx.fillText(formatPrice(dispPx), W - 106, ly + 4);
+    const back = series[Math.max(0, series.length - 6)]!;
+    const ang = Math.atan2(ly - Y(back.p), lx - X(back.t));
+    if (t && t.market === cur) drawPlane(lx, ly + (reduced ? 0 : Math.sin(now / 300) * 3), ang, 1.15, "#FF6A2B");
     else {
       cx.beginPath();
       cx.arc(lx, ly, 5, 0, 6.29);
@@ -1113,6 +1352,7 @@ export function mount(root: HTMLElement) {
     if (!b?.dataset.mk || pos()) return;
     cur = b.dataset.mk as MarketId;
     renderMk();
+    lastHudPx = 0;
     upTicket();
   });
   on($("bLong"), "click", () => {
@@ -1253,6 +1493,7 @@ export function mount(root: HTMLElement) {
     $(a.dataset.doc).scrollIntoView({ behavior: reduced ? "auto" : "smooth" });
   });
 
+  renderMk();
   show((location.hash || "").slice(1));
   filmAt(0);
   draw();
@@ -1266,28 +1507,83 @@ export function mount(root: HTMLElement) {
     paintSky();
   }
 
-  on($("sky"), "click", (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-board]");
-    if (!b?.dataset.board) return;
-    if (!me) return openModal();
+  let snackTimer = 0;
+  function snack(html: string) {
+    const el = $("snack");
+    el.innerHTML = html;
+    el.hidden = false;
+    window.clearTimeout(snackTimer);
+    snackTimer = window.setTimeout(() => (el.hidden = true), 4500);
+  }
+
+  async function boardPlane(id: string) {
     if (busy) return;
     busy = true;
-    fetch("/api/trade/board", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: b.dataset.board }),
-    })
-      .then(async (res) => {
-        const body = (await res.json()) as { error?: string };
-        if (!res.ok) throw new Error(body.error || "Could not board.");
-        formError("");
-        await loadSky();
-      })
-      .catch((err: Error) => formError(err.message))
-      .finally(() => {
-        busy = false;
+    try {
+      const res = await fetch("/api/trade/board", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
       });
+      const body = (await res.json()) as { error?: string; sky?: { planes: SkyPlane[] } };
+      if (!res.ok) throw new Error(body.error || "Could not board.");
+      if (body.sky) sky = body.sky.planes;
+      formError("");
+      const p = sky.find((x) => x.id === id);
+      if (p && !pos()) {
+        cur = p.market;
+        renderMk();
+        upTicket();
+      }
+      paintSky();
+      snack(p ? `You're aboard <b>${esc(p.callsign)}</b>'s ${esc(p.market)} ${p.side} ${formatRatio(p.leverage)}. Takeoff in ${clock(p.takeoffAt - Date.now())}. <a href="#trade" data-go="trade">Watch it</a>` : "You're aboard.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not board.";
+      formError(msg);
+      snack(esc(msg));
+    } finally {
+      busy = false;
+    }
+  }
+
+  on(root, "click", (e) => {
+    const target = e.target as HTMLElement;
+    const b = target.closest<HTMLButtonElement>("[data-board]");
+    if (b?.dataset.board) {
+      if (!me) {
+        pendingBoard = b.dataset.board;
+        openModal();
+        return;
+      }
+      boardPlane(b.dataset.board).catch(() => {});
+      return;
+    }
+    const pick = target.closest<HTMLElement>("[data-pick]");
+    if (pick?.dataset.pick) {
+      if (!pos()) cur = pick.dataset.pick as MarketId;
+      renderMk();
+      history.replaceState(null, "", "#trade");
+      show("trade");
+      upTicket();
+    }
   });
+  on($("tf"), "click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-tf]");
+    if (!b?.dataset.tf) return;
+    tf = b.dataset.tf as typeof tf;
+    [...$("tf").children].forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  });
+  on($("wclose"), "click", () => (pendingBoard = ""));
+
+  const stopLive = startLive((m, price, at) => {
+    live[m] = { p: price, t: at };
+    const buf = (ticks[m] ??= []);
+    const lastTick = buf[buf.length - 1];
+    if (lastTick && at - lastTick.t < 150) lastTick.p = price;
+    else buf.push({ t: at, p: price });
+    if (buf.length > 1600) buf.splice(0, buf.length - 1200);
+  });
+  const livePaint = window.setInterval(paintLive, 250);
 
   loadBoard().catch(() => {});
   loadSky().catch(() => {});
@@ -1296,8 +1592,7 @@ export function mount(root: HTMLElement) {
   const poll = window.setInterval(() => {
     loadPrices().catch(() => {});
     if (me) loadMe().catch(() => {});
-    paintSky();
-    if ($("r-trade").classList.contains("on") || $("r-home").classList.contains("on")) loadSky().catch(() => {});
+    if (!$("r-docs").classList.contains("on")) loadSky().catch(() => {});
   }, reduced ? 5000 : 3000);
   const boardPoll = window.setInterval(() => {
     if ($("r-home").classList.contains("on") || $("r-league").classList.contains("on") || $("r-plane").classList.contains("on")) {
@@ -1309,6 +1604,9 @@ export function mount(root: HTMLElement) {
     cancelAnimationFrame(raf);
     clearInterval(poll);
     clearInterval(boardPoll);
+    clearInterval(livePaint);
+    clearTimeout(snackTimer);
+    stopLive();
     document.body.style.overflow = "";
   });
 

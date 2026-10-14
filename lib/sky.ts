@@ -46,6 +46,8 @@ export async function getSky() {
       phase: p.phase,
       takeoffAt: p.takeoffAt,
       entry: p.entry,
+      liq: p.liq,
+      tp: p.tp,
       boarders: p.boarders.map((b) => ({ wallet: b.wallet, callsign: call(b.wallet), weight: b.weight })),
     }));
   return {
