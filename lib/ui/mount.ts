@@ -370,6 +370,15 @@ const MARKUP = `
    <h3>What the press shows</h3>
    <p>Claimed SOL, season pool, paid out, treasury balance, pilots, and flights. Empty cells stay empty on purpose until the coin trades and fees are claimed. The paper board is a scoreboard only. It does not move SOL.</p>
    <p class="note">Today the pool numbers are published as they are assigned. Automatic on-chain payouts from each landing are on the roadmap below.</p>
+   <h2 id="d-partners">Partners and sponsored pools</h2>
+   <p>Creator fees are the base of every pool. Partners can add to it. A project, protocol, or creator who wants traders in front of them can sponsor a future season.</p>
+   <ul>
+    <li><strong>Top up a season.</strong> A partner sends SOL to the public press wallet before the season opens. It joins that week's prize pool and shows in the pool figure on the press and the league.</li>
+    <li><strong>Same rules as fee money.</strong> Sponsored SOL pays landings only: profitable flights that stayed in the air at least 2 minutes, by profit × the $PLANE weight aboard, 30% pilot and 70% seats. It never pays the paper rank.</li>
+    <li><strong>Named in the open.</strong> The sponsored week is announced with the partner's name and the amount added, so anyone can match it against the wallet on Solscan.</li>
+    <li><strong>What a partner gets.</strong> A week of pilots folding and boarding with their name on the pool, on the slips people post, and in the season recap.</li>
+   </ul>
+   <p class="note">Sponsorship adds SOL to a pool. It does not buy a rank, change the rules, or touch anyone's paper account.</p>
    <h2 id="d-season">Seasons and the paper board</h2>
    <ul>
     <li>A season runs Monday 00:00 UTC to Sunday night. Paper accounts start over at $10,000.</li>
@@ -403,6 +412,7 @@ const MARKUP = `
     <li><strong>Landing payouts.</strong> After a flight lands, compute each seat's SOL share and post the receipt. Start with published splits; then auto-send from the treasury.</li>
     <li><strong>Boarding alerts.</strong> Notify when a plane you care about is on the ground, and when your fold is about to take off.</li>
     <li><strong>Richer slips.</strong> Share cards that show pilot, seats, weight, and whether the flight paid.</li>
+    <li><strong>Sponsored markets.</strong> A partner funds a pool for one market for a week, such as a featured perp or the partner's own token once it trades on a perp venue.</li>
    </ul>
    <h3>Later</h3>
    <ul>
