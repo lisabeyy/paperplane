@@ -89,6 +89,7 @@ const MARKUP = `
 </div>
 <main>
 <div class="route" id="r-home">
+ <div class="wrap ca-bar" id="caBar" hidden><span class="lbl">$PLANE CA</span><code class="mono" id="caText"></code><button type="button" class="btn btn-or btn-sm" id="copyCa" aria-label="Copy $PLANE contract address">Copy</button><a class="btn btn-line btn-sm" id="caPump" href="https://pump.fun" target="_blank" rel="noreferrer">pump.fun ↗</a></div>
  <div class="film" id="film">
   <div class="frame">
    <div class="frame-top">
@@ -944,6 +945,9 @@ export function mount(root: HTMLElement) {
       link.href = cfg.pumpUrl;
       link.textContent = "Open on pump.fun ↗";
       $("mintLine").textContent = `Mint ${cfg.mint}`;
+      $("caText").textContent = cfg.mint;
+      $<HTMLAnchorElement>("caPump").href = cfg.pumpUrl;
+      $("caBar").hidden = false;
       $<HTMLButtonElement>("buyGo").disabled = false;
       $<HTMLButtonElement>("buyGo").textContent = "Buy $PLANE";
     }
@@ -1458,6 +1462,24 @@ export function mount(root: HTMLElement) {
     await loadBoard();
     snack("Fresh sheet. $10,000 to fly with.");
   });
+  on($("copyCa"), "click", () => {
+    const ca = $("caText").textContent || "";
+    const btn = $("copyCa");
+    const done = () => {
+      btn.textContent = "Copied";
+      window.setTimeout(() => (btn.textContent = "Copy"), 1600);
+    };
+    if (navigator.clipboard) navigator.clipboard.writeText(ca).then(done, () => selectCa());
+    else selectCa();
+  });
+  /** Clipboard can be blocked (http, some in-app browsers): select the text so a long-press copies it. */
+  function selectCa() {
+    const range = document.createRange();
+    range.selectNodeContents($("caText"));
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
   on($("tabs"), "click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-lg]");
     if (!b?.dataset.lg) return;

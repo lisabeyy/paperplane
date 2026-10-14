@@ -63,6 +63,8 @@ h1,h2,h3{margin:0;text-wrap:balance}
 section.s{padding-block:clamp(64px,9vw,120px)}
 
 /* ---------- scroll film ---------- */
+.ca-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:14px;padding-bottom:14px}
+.ca-bar code{font-size:14px;color:var(--paper);overflow-wrap:anywhere;min-width:0;flex:1 1 220px;user-select:all}
 .film{position:relative;height:420vh}
 .frame{position:sticky;top:calc(64px + env(safe-area-inset-top,0px));height:calc(100vh - 64px);height:calc(100svh - 64px);min-height:520px;overflow:hidden;display:grid;grid-template-rows:auto 1fr auto}
 .frame-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px clamp(16px,3vw,28px) 0}
