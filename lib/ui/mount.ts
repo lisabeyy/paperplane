@@ -199,6 +199,7 @@ const MARKUP = `
     <div class="field"><span class="lab"><span>Leverage</span><b class="mono num" id="levOut">10x</b></span><input type="range" id="lev" min="1.1" max="250" step="0.1" value="10" aria-label="Leverage"></div>
     <div class="field"><label for="tp">Take-profit <span>% move</span></label><div class="inp"><input id="tp" inputmode="decimal" value="2"><span>%</span></div></div>
     <div class="kv num"><span>Size</span><b id="kSize">—</b><span>Liquidation</span><b id="kLiq">—</b><span>Fee, on open</span><b id="kFee">—</b></div>
+    <div class="livepos" id="livePos" hidden><div class="lp-head"><small>Open P&amp;L</small><b class="num" id="lpPnl">—</b></div><div class="kv num"><span>Entry</span><b id="lpEntry">—</b><span>Mark</span><b id="lpMark">—</b><span>Take-profit</span><b id="lpTp">—</b><span>Liquidation</span><b id="lpLiq">—</b></div></div>
     <button type="submit" class="btn btn-or" id="launch">Fold a plane</button>
     <p class="note" id="formErr" role="status"></p>
     <p class="note" id="liveNote">The fold sits for 90 seconds. Other wallets can board. Takeoff uses the live mark, not the price when you folded.</p>
@@ -884,15 +885,31 @@ export function mount(root: HTMLElement) {
       else if (t.pilot) hudPnl.innerHTML = `Your seat ${signed(r)} · ${esc(t.pilot)}'s ${t.market} ${t.side} ${formatRatio(t.leverage)}`;
       else {
         const v = livePnl(t);
-        hudPnl.innerHTML = `Altitude <span class="${v >= 0 ? "up" : "down"}">${formatFiat(v, "detailed", true)} · ${formatPercent(r, true)}</span> · ${t.side} ${formatRatio(t.leverage)}`;
+        hudPnl.innerHTML = `P&amp;L <span class="${v >= 0 ? "up" : "down"}">${formatFiat(v, "detailed", true)} · ${formatPercent(r, true)}</span> · ${t.side} ${formatRatio(t.leverage)}`;
       }
     }
+  }
+
+  /** Live readout next to Close and land, for your own plane once it is in the air. */
+  function paintPos() {
+    const p = pos();
+    const box = $("livePos");
+    const r = p && p.phase !== "boarding" ? roePct(p) : null;
+    box.hidden = r == null;
+    if (!p || r == null) return;
+    const v = livePnl(p);
+    $("lpPnl").innerHTML = `<span class="${v >= 0 ? "up" : "down"}">${formatFiat(v, "detailed", true)} · ${formatPercent(r, true)}</span>`;
+    $("lpEntry").textContent = formatPrice(p.entry);
+    $("lpMark").textContent = formatPrice(last(p.market));
+    $("lpTp").textContent = p.tp > 0 ? formatPrice(p.tp) : "—";
+    $("lpLiq").textContent = p.liq > 0 ? formatPrice(p.liq) : "—";
   }
 
   /** Everything that moves with the price. Cheap, runs a few times a second. */
   function paintLive() {
     updateMk();
     paintHud();
+    paintPos();
     upTicket();
     paintSky();
   }
