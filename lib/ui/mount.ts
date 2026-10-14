@@ -183,7 +183,6 @@ const MARKUP = `
     <div><small>Open P&amp;L</small><b id="opnl" class="num">—</b></div>
     <div><small>Season return</small><b id="roi" class="num">0.00%</b></div>
     <div><small>League rank</small><b id="rk">unranked</b></div>
-    <div class="acct-tools"><input id="callsign" maxlength="16" placeholder="callsign" aria-label="Callsign" autocomplete="off"><button type="button" class="btn btn-line btn-sm" id="saveName">Save</button><button type="button" class="btn btn-line btn-sm" id="resetBtn">Reset</button></div>
    </div>
    <div class="mkts" id="mkts" role="group" aria-label="Market"></div>
    <div class="stage"><canvas id="chart" aria-label="Price chart"></canvas>
@@ -583,8 +582,6 @@ export function mount(root: HTMLElement) {
     const rank = board?.youRank;
     $("rk").textContent = !me ? "connect to rank" : trades < MIN_TRADES_TO_PLACE ? `${MIN_TRADES_TO_PLACE - trades} flights to place` : rank ? `#${rank}` : "unranked";
     $("avail").textContent = "Available " + formatFiat(me?.cash ?? STARTING_CASH);
-    const input = $<HTMLInputElement>("callsign");
-    if (document.activeElement !== input && me) input.value = me.callsign;
     setConnectLabel();
     const tier = me?.tier?.tier ?? "paper";
     root.querySelectorAll<HTMLElement>(".tier").forEach((el) => el.classList.toggle("on", el.dataset.tier === tier));
@@ -1407,29 +1404,6 @@ export function mount(root: HTMLElement) {
       .finally(() => {
         busy = false;
       });
-  });
-  on($("saveName"), "click", async () => {
-    if (!me) return openModal();
-    const callsign = $<HTMLInputElement>("callsign").value.trim();
-    const res = await fetch("/api/me/callsign", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ callsign }),
-    });
-    const body = (await res.json()) as { error?: string };
-    if (!res.ok) return formError(body.error || "Could not save that callsign.");
-    formError("");
-    await loadMe();
-    await loadBoard();
-  });
-  on($("resetBtn"), "click", async () => {
-    if (!me) return openModal();
-    const res = await fetch("/api/me/reset", { method: "POST" });
-    const body = (await res.json()) as { error?: string };
-    if (!res.ok) return formError(body.error || "Reset failed.");
-    formError("");
-    await loadMe();
-    await loadBoard();
   });
   on($("tabs"), "click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-lg]");
